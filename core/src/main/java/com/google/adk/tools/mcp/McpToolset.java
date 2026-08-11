@@ -416,6 +416,15 @@ public class McpToolset implements BaseToolset {
                 + " for McpToolset");
       }
 
+      if ((mcpToolsetConfig.stdioServerParams() != null
+              || mcpToolsetConfig.stdioConnectionParams() != null)
+          && !allowConfigStdioServers) {
+        throw new ConfigurationException(
+            "Stdio MCP servers are not allowed in agent configs: they launch a local process"
+                + " from a config-supplied 'command'. Build the McpToolset in code, or call"
+                + " setAllowConfigStdioServers(true) if configs are trusted.");
+      }
+
       List<String> toolNames = mcpToolsetConfig.toolFilter();
       Object connectionParameters = resolveConnectionParameters(mcpToolsetConfig);
 
@@ -444,5 +453,16 @@ public class McpToolset implements BaseToolset {
                 Optional.ofNullable(mcpToolsetConfig.stdioServerParams())
                     .map(StdioServerParameters::toServerParameters))
         .orElseThrow(() -> new IllegalStateException("Validated MCP connection params missing."));
+  }
+
+  /**
+   * Whether {@link #fromConfig} may build a stdio MCP server from an agent config. Config-supplied
+   * stdio params launch a local process, so they are rejected unless the application opts in.
+   */
+  private static volatile boolean allowConfigStdioServers = false;
+
+  /** Sets whether {@link #fromConfig} may build stdio MCP servers from an agent config. */
+  public static void setAllowConfigStdioServers(boolean value) {
+    allowConfigStdioServers = value;
   }
 }
