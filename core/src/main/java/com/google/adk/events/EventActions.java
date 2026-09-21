@@ -44,7 +44,9 @@ public class EventActions extends JsonBaseModel {
   private ConcurrentMap<String, Map<String, Object>> requestedAuthConfigs;
   private ConcurrentMap<String, ToolConfirmation> requestedToolConfirmations;
   private boolean endOfAgent;
+  private @Nullable Map<String, Object> agentState;
   private @Nullable EventCompaction compaction;
+  private @Nullable Object setModelResponse;
 
   /** Default constructor for Jackson. */
   public EventActions() {
@@ -66,7 +68,9 @@ public class EventActions extends JsonBaseModel {
     this.requestedAuthConfigs = builder.requestedAuthConfigs;
     this.requestedToolConfirmations = builder.requestedToolConfirmations;
     this.endOfAgent = builder.endOfAgent;
+    this.agentState = builder.agentState;
     this.compaction = builder.compaction;
+    this.setModelResponse = builder.setModelResponse;
   }
 
   @JsonProperty("skipSummarization")
@@ -192,6 +196,19 @@ public class EventActions extends JsonBaseModel {
     this.endOfAgent = endInvocation;
   }
 
+  /**
+   * The checkpointed state of the authoring agent at this event, used for session resumability.
+   * Only set by ADK workflow/agent machinery on resumable invocations.
+   */
+  @JsonProperty("agentState")
+  public Optional<Map<String, Object>> agentState() {
+    return Optional.ofNullable(agentState);
+  }
+
+  public void setAgentState(@Nullable Map<String, Object> agentState) {
+    this.agentState = agentState;
+  }
+
   @JsonProperty("compaction")
   public Optional<EventCompaction> compaction() {
     return Optional.ofNullable(compaction);
@@ -199,6 +216,19 @@ public class EventActions extends JsonBaseModel {
 
   public void setCompaction(@Nullable EventCompaction compaction) {
     this.compaction = compaction;
+  }
+
+  /**
+   * The successfully validated structured response set by the {@code set_model_response} tool.
+   * Empty when the tool was not called or its arguments failed output-schema validation.
+   */
+  @JsonProperty("setModelResponse")
+  public Optional<Object> setModelResponse() {
+    return Optional.ofNullable(setModelResponse);
+  }
+
+  public void setSetModelResponse(@Nullable Object setModelResponse) {
+    this.setModelResponse = setModelResponse;
   }
 
   public static Builder builder() {
@@ -226,7 +256,9 @@ public class EventActions extends JsonBaseModel {
         && Objects.equals(requestedAuthConfigs, that.requestedAuthConfigs)
         && Objects.equals(requestedToolConfirmations, that.requestedToolConfirmations)
         && (endOfAgent == that.endOfAgent)
-        && Objects.equals(compaction, that.compaction);
+        && Objects.equals(agentState, that.agentState)
+        && Objects.equals(compaction, that.compaction)
+        && Objects.equals(setModelResponse, that.setModelResponse);
   }
 
   @Override
@@ -241,7 +273,9 @@ public class EventActions extends JsonBaseModel {
         requestedAuthConfigs,
         requestedToolConfirmations,
         endOfAgent,
-        compaction);
+        agentState,
+        compaction,
+        setModelResponse);
   }
 
   /** Builder for {@link EventActions}. */
@@ -255,7 +289,9 @@ public class EventActions extends JsonBaseModel {
     private ConcurrentMap<String, Map<String, Object>> requestedAuthConfigs;
     private ConcurrentMap<String, ToolConfirmation> requestedToolConfirmations;
     private boolean endOfAgent = false;
+    private @Nullable Map<String, Object> agentState;
     private @Nullable EventCompaction compaction;
+    private @Nullable Object setModelResponse;
 
     public Builder() {
       this.stateDelta = new ConcurrentHashMap<>();
@@ -276,7 +312,9 @@ public class EventActions extends JsonBaseModel {
       this.requestedToolConfirmations =
           new ConcurrentHashMap<>(eventActions.requestedToolConfirmations());
       this.endOfAgent = eventActions.endOfAgent;
+      this.agentState = eventActions.agentState;
       this.compaction = eventActions.compaction;
+      this.setModelResponse = eventActions.setModelResponse;
     }
 
     @CanIgnoreReturnValue
@@ -377,9 +415,23 @@ public class EventActions extends JsonBaseModel {
     }
 
     @CanIgnoreReturnValue
+    @JsonProperty("agentState")
+    public Builder agentState(@Nullable Map<String, Object> agentState) {
+      this.agentState = agentState;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
     @JsonProperty("compaction")
     public Builder compaction(@Nullable EventCompaction value) {
       this.compaction = value;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    @JsonProperty("setModelResponse")
+    public Builder setModelResponse(@Nullable Object value) {
+      this.setModelResponse = value;
       return this;
     }
 
@@ -394,7 +446,9 @@ public class EventActions extends JsonBaseModel {
       this.requestedAuthConfigs.putAll(other.requestedAuthConfigs());
       this.requestedToolConfirmations.putAll(other.requestedToolConfirmations());
       this.endOfAgent = this.endOfAgent || other.endOfAgent();
+      other.agentState().ifPresent(this::agentState);
       other.compaction().ifPresent(this::compaction);
+      other.setModelResponse().ifPresent(this::setModelResponse);
       return this;
     }
 

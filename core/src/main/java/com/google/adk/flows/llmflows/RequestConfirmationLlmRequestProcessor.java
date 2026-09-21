@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.adk.JsonBaseModel;
 import com.google.adk.agents.InvocationContext;
 import com.google.adk.agents.LlmAgent;
+import com.google.adk.agents.Role;
 import com.google.adk.events.Event;
 import com.google.adk.events.ToolConfirmation;
 import com.google.adk.models.LlmRequest;
@@ -60,10 +61,11 @@ public class RequestConfirmationLlmRequestProcessor implements RequestProcessor 
   @Override
   public Single<RequestProcessor.RequestProcessingResult> processRequest(
       InvocationContext invocationContext, LlmRequest llmRequest) {
-    ImmutableList<Event> events = ImmutableList.copyOf(invocationContext.session().events());
+    // A confirmation is answered on the branch that asked for it; a parallel tree's is not ours.
+    ImmutableList<Event> events = invocationContext.eventsOnCurrentBranch();
     if (events.isEmpty()) {
       logger.trace(
-          "No events are present in the session. Skipping request confirmation processing.");
+          "No events are present on the current branch. Skipping request confirmation processing.");
       return Single.just(RequestProcessingResult.create(llmRequest, ImmutableList.of()));
     }
 
@@ -169,7 +171,7 @@ public class RequestConfirmationLlmRequestProcessor implements RequestProcessor 
     // function responses.
     for (int i = events.size() - 1; i >= 0; i--) {
       Event event = events.get(i);
-      if (!Objects.equals(event.author(), "user") || event.functionResponses().isEmpty()) {
+      if (!Objects.equals(event.author(), Role.USER) || event.functionResponses().isEmpty()) {
         continue;
       }
 

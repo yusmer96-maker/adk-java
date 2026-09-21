@@ -1,5 +1,74 @@
 # Changelog
 
+## [1.10.1](https://github.com/google/adk-java/compare/v1.10.0...v1.10.1) (2026-09-18)
+
+
+### Documentation
+
+* remove TODO regarding default InMemoryRunner.appName ([99adf57](https://github.com/google/adk-java/commit/99adf57fb4f58327e7132d91bd0d6d25476e32cb))
+
+## [1.10.0](https://github.com/google/adk-java/compare/v1.9.0...v1.10.0) (2026-09-16)
+
+
+### Features
+
+* add @Experimental annotation for unstable ADK APIs ([69914f4](https://github.com/google/adk-java/commit/69914f4b69f3461f33a757b2ce191750b45f2136))
+* add EventActions.agentState for session-resumability checkpoints ([8505a01](https://github.com/google/adk-java/commit/8505a017298c128c88c405300e52de001b22d0de))
+* add one-way ADK Java to Kotlin engine interop module ([baff584](https://github.com/google/adk-java/commit/baff584d520e3a1ad28f0021b1db2b4792549de6))
+* add opt-in ResumabilityConfig flag for plain-text continuation auto-resume ([f0fb722](https://github.com/google/adk-java/commit/f0fb722cd6369e9179b6194f544d324e89ba9101))
+* Add unique event_id to BigQuery agent analytics events ([15c70de](https://github.com/google/adk-java/commit/15c70ded3f99d207df4a6e97d68a9380e9ecb05e))
+* bridge ADK Java plugin onRunErrorCallback to the Kotlin engine ([4ee155b](https://github.com/google/adk-java/commit/4ee155b258114a77e76400a3396dafbc5448e778))
+* fire ADK Java plugin tool callbacks for native Kotlin tools ([fda5a10](https://github.com/google/adk-java/commit/fda5a1027ae4646ee32bd5d722b4531ad55416eb))
+* run an ADK Kotlin-engine runner behind the ADK Java Runner API ([6ff8241](https://github.com/google/adk-java/commit/6ff82412b4b19d1e6c98f464659018e6636861f2))
+
+
+### Bug Fixes
+
+* **dev:** serve the dev UI and its assets under a /dev-ui path ([6866919](https://github.com/google/adk-java/commit/6866919fc7c33cc93af5a2bf314c42714533bb48))
+* **memory:** format search timestamps as epoch millis ([5269b87](https://github.com/google/adk-java/commit/5269b8751a6b0c2fa89d41b79b0b1fb0b6cacb9a))
+* **models:** set additionalProperties on schemas for OpenAI strict structured outputs ([4b058cd](https://github.com/google/adk-java/commit/4b058cd17346944ac047828eda6424e495204bf9))
+* **sessions:** forward the caller-supplied session id in VertexAiSessionService ([77eae25](https://github.com/google/adk-java/commit/77eae25844dbc7d49101461c97d7a8711ba5e9dd))
+* **sessions:** validate HTTP status before parsing Vertex AI session responses ([4192aca](https://github.com/google/adk-java/commit/4192aca586bf0bd47f3fa14bbd7d5959d3c07fdb))
+
+## [1.9.0](https://github.com/google/adk-java/compare/v1.8.0...v1.9.0) (2026-08-28)
+
+
+### Features
+
+* add a GeminiLiveTransport seam to GeminiLlmConnection ([e8b1c20](https://github.com/google/adk-java/commit/e8b1c20d10680e7ed8e936ae1ac0ab768a0b8345))
+
+
+### Bug Fixes
+
+* **artifacts:** honor the "user:" namespace in InMemoryArtifactService ([0f46d5c](https://github.com/google/adk-java/commit/0f46d5c57ad6eba4496e93e694a0e34b010b2f30))
+* **artifacts:** honor user: namespace, prevent phantom keys, sort listing ([01e1e41](https://github.com/google/adk-java/commit/01e1e41d4cb4cbd9b29d85bb1ef78110ccf575ba))
+* avoid setting Part.partMetadata when metadata is empty ([c05206f](https://github.com/google/adk-java/commit/c05206fa76792ec1d0f759cf53e99af9d1a72fbd))
+* **chat:** expose non-success HTTP status via typed exception ([052f31a](https://github.com/google/adk-java/commit/052f31ad3799124a36bb3bb732458d748fcc6586))
+* preserve tool responses and thought signatures in Spring AI message conversion ([6eef478](https://github.com/google/adk-java/commit/6eef47800baf57e2446e69febaa22fe11faf8f58))
+* support typed responseSchema in ChatCompletionsRequest ([8c06011](https://github.com/google/adk-java/commit/8c06011ef20e45f081ada54e675eca6963ba255c))
+* update Java ADK ResponseConverter to propagate long-running tool IDs on AUTH_REQUIRED state ([2d20d1b](https://github.com/google/adk-java/commit/2d20d1b213a0cc98994be9cf3ed5e070abed6df2))
+
+## [1.8.0](https://github.com/google/adk-java/compare/v1.7.1...v1.8.0) (2026-08-13)
+
+
+### Features
+
+* Add onRunErrorCallback to ADK Plugin and Runner ([3e6b915](https://github.com/google/adk-java/commit/3e6b9154e089f24daf43c9ded7e4e40483fb7995))
+
+
+### Bug Fixes
+
+* **a2a:** drop unparseable A2A metadata instead of aborting conversion ([b75c916](https://github.com/google/adk-java/commit/b75c9169c630ab0450d16aa74898da6b953d0e78))
+* **a2a:** fail the A2A stream in the handler, not via the transport ([faa3482](https://github.com/google/adk-java/commit/faa3482fa70a5f750e4db04335ca5a5091be471e))
+* **a2a:** guard null DataPart metadata in ResponseConverter ([fcfd9bd](https://github.com/google/adk-java/commit/fcfd9bd8b1b5516932b9c5d72a62a191aea88e13))
+* **a2a:** require explicit adk_type metadata to convert A2A DataParts ([b704c5f](https://github.com/google/adk-java/commit/b704c5fc963d315c624b06d97a6a00d963e54cc0))
+* **core:** only resume tool confirmations for calls this agent emitted ([e5aba3a](https://github.com/google/adk-java/commit/e5aba3aa08c5b85a892e0c9164fa0ab8513786fa))
+* keep thought signature and tool call parts through streaming and history ([d7355a7](https://github.com/google/adk-java/commit/d7355a712345864682134762df890bf7b713b8c4))
+* **runner:** build a new message when saving input blobs, instead of writing into the caller's Content ([80c1a21](https://github.com/google/adk-java/commit/80c1a21da378f121fef3af065eb65dce0e0080c9))
+* stop returning exception text to remote A2A peers ([a3df463](https://github.com/google/adk-java/commit/a3df4632c19d857552af3d2c38373aabea9069de))
+* Update default BigQueryLoggerConfig table name and remove default dataset ID ([723a2ef](https://github.com/google/adk-java/commit/723a2ef0c4929879a6bd831287c34002ef02ef00))
+* update stream completion check in A2A SDK to handle all terminal and interrupted task states ([2b87d65](https://github.com/google/adk-java/commit/2b87d65d9704a61ff4668b8c9482a79fef9fe0d4))
+
 ## [1.7.1](https://github.com/google/adk-java/compare/v1.7.0...v1.7.1) (2026-07-28)
 
 

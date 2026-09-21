@@ -25,6 +25,7 @@ import com.google.adk.agents.Callbacks.BeforeToolCallback;
 import com.google.adk.agents.Callbacks.OnToolErrorCallback;
 import com.google.adk.agents.InvocationContext;
 import com.google.adk.agents.LlmAgent;
+import com.google.adk.agents.Role;
 import com.google.adk.agents.RunConfig.ToolExecutionMode;
 import com.google.adk.events.Event;
 import com.google.adk.events.EventActions;
@@ -303,25 +304,10 @@ public final class Functions {
                   Map<String, Object> functionArgs =
                       functionCall.args().map(HashMap::new).orElse(new HashMap<>());
 
-                  Maybe<Map<String, Object>> maybeFunctionResult =
-                      maybeInvokeBeforeToolCall(invocationContext, tool, functionArgs, toolContext)
-                          .switchIfEmpty(
-                              Maybe.defer(
-                                      () ->
-                                          isLive
-                                              ? processFunctionLive(
-                                                  invocationContext,
-                                                  tool,
-                                                  toolContext,
-                                                  functionCall,
-                                                  functionArgs)
-                                              : callTool(tool, functionArgs, toolContext))
-                                  .compose(Tracing.withContext(parentContext)));
-
                   return postProcessFunctionResult(
-                      maybeFunctionResult,
                       invocationContext,
                       tool,
+                      functionCall,
                       functionArgs,
                       toolContext,
                       isLive,
@@ -379,7 +365,7 @@ public final class Functions {
                   result -> {
                     String resultText = "Function " + tool.name() + " returned: " + result;
                     Content updateContent =
-                        Content.builder().role("user").parts(Part.fromText(resultText)).build();
+                        Content.builder().role(Role.USER).parts(Part.fromText(resultText)).build();
                     invocationContext.liveRequestQueue().get().content(updateContent);
                   },
                   error -> logger.error("Error in streaming tool " + tool.name(), error.getCause()),
@@ -486,9 +472,9 @@ public final class Functions {
   }
 
   private static Maybe<Event> postProcessFunctionResult(
-      Maybe<Map<String, Object>> maybeFunctionResult,
       InvocationContext invocationContext,
       BaseTool tool,
+      FunctionCall functionCall,
       Map<String, Object> functionArgs,
       ToolContext toolContext,
       boolean isLive,
@@ -497,11 +483,38 @@ public final class Functions {
         () ->
             Instrumentation.recordToolExecution(
                 tool, invocationContext.agent(), functionArgs, parentContext),
-        toolExecution ->
-            processFunctionResult(
-                    maybeFunctionResult, invocationContext, tool, functionArgs, toolContext, isLive)
-                .doOnSuccess(event -> toolExecution.context().setFunctionResponseEvent(event))
-                .doOnError(toolExecution::setError),
+        toolExecution -> {
+          Context toolOtelContext = toolExecution.context().otelContext();
+          Maybe<Map<String, Object>> maybeFunctionResult =
+              Maybe.defer(
+                      () ->
+                          maybeInvokeBeforeToolCall(
+                              invocationContext, tool, functionArgs, toolContext))
+                  .compose(Tracing.withContext(toolOtelContext))
+                  .switchIfEmpty(
+                      Maybe.defer(
+                              () ->
+                                  isLive
+                                      ? processFunctionLive(
+                                          invocationContext,
+                                          tool,
+                                          toolContext,
+                                          functionCall,
+                                          functionArgs)
+                                      : callTool(tool, functionArgs, toolContext))
+                          .compose(Tracing.withContext(toolOtelContext)));
+          return processFunctionResult(
+                  maybeFunctionResult,
+                  invocationContext,
+                  tool,
+                  functionArgs,
+                  toolContext,
+                  isLive,
+                  toolOtelContext)
+              .compose(Tracing.withContext(toolOtelContext))
+              .doOnSuccess(event -> toolExecution.context().setFunctionResponseEvent(event))
+              .doOnError(toolExecution::setError);
+        },
         ToolExecution::close);
   }
 
@@ -511,14 +524,19 @@ public final class Functions {
       BaseTool tool,
       Map<String, Object> functionArgs,
       ToolContext toolContext,
-      boolean isLive) {
+      boolean isLive,
+      Context toolOtelContext) {
     return maybeFunctionResult
         .map(Optional::of)
         .defaultIfEmpty(Optional.empty())
         .onErrorResumeNext(
             t -> {
               Maybe<Map<String, Object>> errorCallbackResult =
-                  handleOnToolErrorCallback(invocationContext, tool, functionArgs, toolContext, t);
+                  Maybe.defer(
+                          () ->
+                              handleOnToolErrorCallback(
+                                  invocationContext, tool, functionArgs, toolContext, t))
+                      .compose(Tracing.withContext(toolOtelContext));
               Maybe<Optional<Map<String, Object>>> mappedResult;
               if (isLive) {
                 // In live mode, handle null results from the error callback gracefully.
@@ -534,8 +552,15 @@ public final class Functions {
             optionalInitialResult -> {
               Map<String, Object> initialFunctionResult = optionalInitialResult.orElse(null);
 
-              return maybeInvokeAfterToolCall(
-                      invocationContext, tool, functionArgs, toolContext, initialFunctionResult)
+              return Maybe.defer(
+                      () ->
+                          maybeInvokeAfterToolCall(
+                              invocationContext,
+                              tool,
+                              functionArgs,
+                              toolContext,
+                              initialFunctionResult))
+                  .compose(Tracing.withContext(toolOtelContext))
                   .map(Optional::of)
                   .defaultIfEmpty(Optional.ofNullable(initialFunctionResult))
                   .flatMapMaybe(
@@ -588,7 +613,7 @@ public final class Functions {
             .invocationId(baseEvent.invocationId())
             .author(baseEvent.author())
             .branch(baseEvent.branch().orElse(null))
-            .content(Content.builder().role("user").parts(mergedParts).build())
+            .content(Content.builder().role(Role.USER).parts(mergedParts).build())
             .actions(mergedActionsBuilder.build())
             .timestamp(baseEvent.timestamp())
             .build());
@@ -739,7 +764,7 @@ public final class Functions {
         .invocationId(invocationContext.invocationId())
         .author(invocationContext.agent().name())
         .branch(invocationContext.branch().orElse(null))
-        .content(Content.builder().role("user").parts(partFunctionResponse).build())
+        .content(Content.builder().role(Role.USER).parts(partFunctionResponse).build())
         .actions(toolContext.eventActions())
         .build();
   }

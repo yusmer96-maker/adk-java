@@ -89,6 +89,7 @@ public final class EventActionsTest {
             .requestedToolConfirmations(
                 new ConcurrentHashMap<>(ImmutableMap.of("tool2", TOOL_CONFIRMATION)))
             .endOfAgent(true)
+            .setModelResponse(ImmutableMap.of("field1", "value1"))
             .build();
 
     EventActions merged = eventActions1.toBuilder().merge(eventActions2).build();
@@ -109,6 +110,73 @@ public final class EventActionsTest {
         .containsExactly("tool1", TOOL_CONFIRMATION, "tool2", TOOL_CONFIRMATION);
     assertThat(merged.endOfAgent()).isTrue();
     assertThat(merged.compaction()).hasValue(COMPACTION);
+    assertThat(merged.setModelResponse()).hasValue(ImmutableMap.of("field1", "value1"));
+  }
+
+  @Test
+  public void agentState_roundTripsThroughToBuilder() {
+    EventActions actions =
+        EventActions.builder().agentState(ImmutableMap.of("current_sub_agent", "b")).build();
+
+    EventActions rebuilt = actions.toBuilder().build();
+
+    assertThat(rebuilt).isEqualTo(actions);
+    assertThat(rebuilt.agentState()).hasValue(ImmutableMap.of("current_sub_agent", "b"));
+  }
+
+  @Test
+  public void agentState_roundTripsThroughJson() {
+    EventActions actions =
+        EventActions.builder().agentState(ImmutableMap.of("times_looped", 2)).build();
+
+    EventActions deserialized = EventActions.fromJsonString(actions.toJson(), EventActions.class);
+
+    assertThat(deserialized.agentState()).isPresent();
+    assertThat(deserialized.agentState().get()).containsEntry("times_looped", 2);
+  }
+
+  @Test
+  public void agentState_absentByDefault_andOmittedFromJson() {
+    EventActions actions = EventActions.builder().build();
+
+    assertThat(actions.agentState()).isEmpty();
+    // Kept out of the serialized form so pre-existing events stay byte-identical.
+    assertThat(actions.toJson()).doesNotContain("agentState");
+  }
+
+  @Test
+  public void merge_agentState_lastWins() {
+    EventActions first =
+        EventActions.builder().agentState(ImmutableMap.of("current_sub_agent", "a")).build();
+    EventActions second =
+        EventActions.builder().agentState(ImmutableMap.of("current_sub_agent", "b")).build();
+
+    EventActions merged = first.toBuilder().merge(second).build();
+
+    assertThat(merged.agentState()).hasValue(ImmutableMap.of("current_sub_agent", "b"));
+  }
+
+  @Test
+  public void merge_agentState_disjointKeys_replacesWholeMap() {
+    // agentState is a single checkpoint payload: merge replaces it wholesale (last-wins) rather
+    // than deep-merging keys.
+    EventActions first = EventActions.builder().agentState(ImmutableMap.of("a", 1)).build();
+    EventActions second = EventActions.builder().agentState(ImmutableMap.of("b", 2)).build();
+
+    EventActions merged = first.toBuilder().merge(second).build();
+
+    assertThat(merged.agentState()).hasValue(ImmutableMap.of("b", 2));
+  }
+
+  @Test
+  public void merge_agentState_absentInOther_keepsThis() {
+    EventActions first =
+        EventActions.builder().agentState(ImmutableMap.of("current_sub_agent", "a")).build();
+    EventActions second = EventActions.builder().build();
+
+    EventActions merged = first.toBuilder().merge(second).build();
+
+    assertThat(merged.agentState()).hasValue(ImmutableMap.of("current_sub_agent", "a"));
   }
 
   @Test
@@ -177,6 +245,7 @@ public final class EventActionsTest {
         EventActions.builder()
             .deletedArtifactIds(ImmutableSet.of("d1", "d2"))
             .stateDelta(new ConcurrentHashMap<>(ImmutableMap.of("k", "v")))
+            .setModelResponse(ImmutableMap.of("field1", "value1"))
             .build();
 
     String json = eventActions.toJson();
@@ -184,6 +253,7 @@ public final class EventActionsTest {
 
     assertThat(deserialized).isEqualTo(eventActions);
     assertThat(deserialized.deletedArtifactIds()).containsExactly("d1", "d2");
+    assertThat(deserialized.setModelResponse()).hasValue(ImmutableMap.of("field1", "value1"));
   }
 
   @Test

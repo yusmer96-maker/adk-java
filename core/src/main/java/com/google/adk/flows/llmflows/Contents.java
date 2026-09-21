@@ -23,6 +23,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.adk.JsonBaseModel;
 import com.google.adk.agents.InvocationContext;
 import com.google.adk.agents.LlmAgent;
+import com.google.adk.agents.Role;
 import com.google.adk.events.Event;
 import com.google.adk.events.EventCompaction;
 import com.google.adk.models.LlmRequest;
@@ -112,7 +113,7 @@ public final class Contents implements RequestProcessor {
     // Find the latest event that starts the current turn and process from there.
     for (int i = events.size() - 1; i >= 0; i--) {
       Event event = events.get(i);
-      if (event.author().equals("user") || isOtherAgentReply(agentName, event)) {
+      if (event.author().equals(Role.USER) || isOtherAgentReply(agentName, event)) {
         return getContents(
             currentBranch, events.subList(i, events.size()), agentName, groupFunctionResponses);
       }
@@ -155,7 +156,10 @@ public final class Contents implements RequestProcessor {
       // TODO: Skip auth events.
 
       if (isOtherAgentReply(agentName, event)) {
-        filteredEvents.add(convertForeignEvent(event));
+        Event foreignEvent = convertForeignEvent(event);
+        if (foreignEvent != null) {
+          filteredEvents.add(foreignEvent);
+        }
       } else {
         filteredEvents.add(event);
       }
@@ -180,8 +184,9 @@ public final class Contents implements RequestProcessor {
    *
    * <p>This can happen to the events that only changed session state. When both content and
    * transcriptions are empty, the event will be considered as empty. The content is considered
-   * empty if none of its parts contain text, inline data, file data, function call, or function
-   * response. Parts with only thoughts are also considered empty.
+   * empty if none of its parts contain text, inline data, file data, function call, function
+   * response, server-side tool call, or server-side tool response. Parts with only thoughts are
+   * also considered empty.
    *
    * @param event the event to check.
    * @return {@code true} if the event is considered to have empty content, {@code false} otherwise.
@@ -205,12 +210,16 @@ public final class Contents implements RequestProcessor {
    *
    * <ul>
    *   <li>It has no meaningful content (text, inline_data, file_data, function_call,
-   *       function_response, executable_code, or code_execution_result), OR
-   *   <li>It is marked as a thought AND does not contain function_call or function_response
+   *       function_response, tool_call, tool_response, executable_code, or code_execution_result)
+   *       and no thought_signature, OR
+   *   <li>It is marked as a thought AND does not contain function_call, function_response,
+   *       tool_call, tool_response or thought_signature
    * </ul>
    *
    * <p>Function calls and responses are never invisible, even if marked as thought, because they
-   * represent actions that need to be executed or results that need to be processed.
+   * represent actions that need to be executed or results that need to be processed. Parts carrying
+   * a thought signature, and server-side tool calls and their responses, are never invisible
+   * either, because the caller is required to echo them back on the next request.
    *
    * @param part the part to check.
    * @return {@code true} if the part is invisible, {@code false} otherwise.
@@ -219,6 +228,18 @@ public final class Contents implements RequestProcessor {
     if (part.functionCall().isPresent() || part.functionResponse().isPresent()) {
       return false;
     }
+
+    // A thought signature is opaque state to hand back verbatim, and it routinely arrives on a part
+    // with nothing else in it, so it has to be checked before the emptiness test below.
+    if (part.thoughtSignature().map(signature -> signature.length > 0).orElse(false)) {
+      return false;
+    }
+
+    // Server-side tool calls/responses must be echoed back to the model.
+    if (part.toolCall().isPresent() || part.toolResponse().isPresent()) {
+      return false;
+    }
+
     return part.thought().orElse(false)
         || !(part.text().isPresent()
             || part.inlineData().isPresent()
@@ -384,11 +405,21 @@ public final class Contents implements RequestProcessor {
   private static boolean isOtherAgentReply(String agentName, Event event) {
     return !agentName.isEmpty()
         && !event.author().equals(agentName)
-        && !event.author().equals("user");
+        && !event.author().equals(Role.USER);
   }
 
-  /** Converts an {@code event} authored by another agent to a 'contextual-only' event. */
-  private static Event convertForeignEvent(Event event) {
+  /**
+   * Converts an {@code event} authored by another agent to a 'contextual-only' event.
+   *
+   * <p>Returns {@code null} when nothing but the preamble survives the conversion, so the caller
+   * drops the event instead of sending a preamble with no context after it.
+   *
+   * <p>The relayed text is attacker-reachable: whoever talks to the other agent steers what it
+   * says, and its tool results carry whatever the tool read. Each relayed text payload is therefore
+   * fenced (see {@link Fencing}), and the leading part states that fenced content is data, so a
+   * payload has to be believed rather than merely obeyed.
+   */
+  private static @Nullable Event convertForeignEvent(Event event) {
     if (event.content().isEmpty()
         || event.content().get().parts().isEmpty()
         || event.content().get().parts().get().isEmpty()) {
@@ -396,40 +427,64 @@ public final class Contents implements RequestProcessor {
     }
 
     List<Part> parts = new ArrayList<>();
-    parts.add(Part.fromText("For context:"));
+    parts.add(Part.fromText(Fencing.OTHER_AGENT_CONTEXT_PREAMBLE));
 
     String originalAuthor = event.author();
 
     for (Part part : event.content().get().parts().get()) {
-      if (part.text().isPresent()
-          && !part.text().get().isEmpty()
-          && !part.thought().orElse(false)) {
-        parts.add(Part.fromText(String.format("[%s] said: %s", originalAuthor, part.text().get())));
-      } else if (part.functionCall().isPresent()) {
-        FunctionCall functionCall = part.functionCall().get();
+      // Thoughts belong to the agent that produced them and are never narrated, whatever else the
+      // part carries. ADK Python and ADK Kotlin both skip them before the branches below.
+      if (part.thought().orElse(false)) {
+        continue;
+      }
+      // Blank text is not narrated: such a part is a signature carrier, and a bare "said:" would
+      // both pollute the prompt and keep the event alive on nothing.
+      if (part.text().map(text -> !text.isBlank()).orElse(false)) {
         parts.add(
             Part.fromText(
                 String.format(
-                    "[%s] called tool `%s` with parameters: %s",
+                    "[%s] said:\n%s", originalAuthor, Fencing.quoteUntrusted(part.text().get()))));
+      } else if (part.functionCall().isPresent()) {
+        FunctionCall functionCall = part.functionCall().get();
+        // The tool name is model-chosen too, so it is elided but left unfenced: it reads as
+        // part of the sentence and a fence there would obscure which tool ran.
+        parts.add(
+            Part.fromText(
+                String.format(
+                    "[%s] called tool `%s` with parameters:\n%s",
                     originalAuthor,
-                    functionCall.name().orElse("unknown_tool"),
-                    functionCall.args().map(Contents::convertMapToJson).orElse("{}"))));
+                    Fencing.elideQuoteMarkers(functionCall.name().orElse("unknown_tool")),
+                    Fencing.quoteUntrusted(
+                        functionCall.args().map(Contents::convertMapToJson).orElse("{}")))));
       } else if (part.functionResponse().isPresent()) {
         FunctionResponse functionResponse = part.functionResponse().get();
         parts.add(
             Part.fromText(
                 String.format(
-                    "[%s] `%s` tool returned result: %s",
+                    "[%s] `%s` tool returned result:\n%s",
                     originalAuthor,
-                    functionResponse.name().orElse("unknown_tool"),
-                    functionResponse.response().map(Contents::convertMapToJson).orElse("{}"))));
-      } else {
+                    Fencing.elideQuoteMarkers(functionResponse.name().orElse("unknown_tool")),
+                    Fencing.quoteUntrusted(
+                        functionResponse
+                            .response()
+                            .map(Contents::convertMapToJson)
+                            .orElse("{}")))));
+      } else if (part.inlineData().isPresent()
+          || part.fileData().isPresent()
+          || part.executableCode().isPresent()
+          || part.codeExecutionResult().isPresent()) {
         parts.add(part);
       }
+      // Anything else - a bare signature, a server-side call - belongs to the model instance that
+      // produced it, so claiming it for another agent would be wrong.
     }
 
-    Content content = Content.builder().role("user").parts(parts).build();
-    return event.toBuilder().author("user").content(content).build();
+    if (parts.size() == 1) {
+      return null;
+    }
+
+    Content content = Content.builder().role(Role.USER).parts(parts).build();
+    return event.toBuilder().author(Role.USER).content(content).build();
   }
 
   private static String convertMapToJson(Map<String, Object> struct) {
@@ -443,9 +498,13 @@ public final class Contents implements RequestProcessor {
   private static boolean isEventBelongsToBranch(@Nullable String invocationBranch, Event event) {
     @Nullable String eventBranch = event.branch().orElse(null);
 
+    // Branches are dot-joined agent names, so a raw prefix match would make "root.agent_10" belong
+    // to the branch "root.agent_1". Require either an exact match, or a prefix that ends on a
+    // segment boundary.
     return Strings.isNullOrEmpty(invocationBranch)
         || Strings.isNullOrEmpty(eventBranch)
-        || invocationBranch.startsWith(eventBranch);
+        || invocationBranch.equals(eventBranch)
+        || invocationBranch.startsWith(eventBranch + ".");
   }
 
   /**
